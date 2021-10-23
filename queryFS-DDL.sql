@@ -1,0 +1,31 @@
+CREATE SCHEMA IF NOT EXISTS QueryFS;
+
+USE QueryFS;
+
+CREATE TABLE IF NOT EXISTS queryFS_query(
+	queryId INTEGER NOT NULL AUTO_INCREMENT,
+	queryName VARCHAR(256) NOT NULL,
+	queryText TEXT NOT NULL,
+	dbTimeStamp TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+	PRIMARY KEY(queryId),
+	UNIQUE KEY(queryName)
+);
+
+CREATE TABLE IF NOT EXISTS queryFS_directory(
+	directoryId INTEGER NOT NULL AUTO_INCREMENT,
+	directoryName VARCHAR(255) NOT NULL,
+	parentDirectoryId INTEGER NOT NULL,
+	dbTimeStamp TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+	PRIMARY KEY(directoryId),
+	KEY(parentDirectoryId),
+	UNIQUE KEY(directoryName, parentDirectoryId)
+);
+
+CREATE TABLE IF NOT EXISTS queryFS_queryDirectoryMap(
+	queryId INTEGER NOT NULL,
+	directoryId INTEGER NOT NULL,
+	PRIMARY KEY(queryId, directoryId)
+);
+
+INSERT IGNORE INTO queryFS_directory(directoryId, directoryName, parentDirectoryId, dbTimeStamp) VALUES(0, '<root>', 0, CURRENT_TIMESTAMP);
+
