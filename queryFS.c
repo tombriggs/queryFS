@@ -215,7 +215,7 @@ qfsQuery** qfs_getDirectoryFileContents(int dirId, MYSQL *dbConn)
 	return dirContents;
 }
 
-int qfs_getDirectoryIdFromPath(const char *path, MYSQL *dbConn)
+int qfs_getDirectoryIdFromPath(const char *path, MYSQL *dbConn, FILE *logfile)
 {
 	int dirId = -1;
 	char querySQL[512];
@@ -249,6 +249,30 @@ int qfs_getDirectoryIdFromPath(const char *path, MYSQL *dbConn)
 	}
 
 	mysql_free_result(result);
+
+	// more results? -1 = no, >0 = error, 0 = yes (keep looping)
+	int moreResults = mysql_next_result(dbConn);
+	if (moreResults > -1)
+	{
+		MYSQL_RES *result2 = mysql_store_result(dbConn);
+		if (result2 != NULL)
+		{
+			if (logfile != NULL)
+			{
+				fprintf(logfile, "Unexpected extra results for query \"%s\"? (%d)\n", querySQL, moreResults);
+				fflush(logfile);
+			}
+			mysql_free_result(result2);
+		}
+		else if (mysql_field_count(dbConn) != 0)
+		{
+			if (logfile != NULL)
+			{
+				fprintf(logfile, "Unexpected extra results for query \"%s\"? (%d) fields\n", querySQL, mysql_field_count(dbConn));
+				fflush(logfile);
+			}
+		}
+	}
 
 	return dirId;
 }
@@ -531,6 +555,9 @@ static int queryFS_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 
 	MYSQL *dbConn = ((queryFS_pdata*)(fuse_get_context()->private_data))->dbConn;
 	FILE *logfile = ((queryFS_pdata*)(fuse_get_context()->private_data))->logfile;
+				
+	if (logfile != NULL)
+		fprintf(logfile, "queryFS_readdir: path %s start\n", path);
 
 	// The root directory is the easy case
 	if (strcmp(path, "/") == 0)
@@ -540,9 +567,13 @@ static int queryFS_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 	else
 	{
 		// Call the DB to find out what directory this is
-		dirId = qfs_getDirectoryIdFromPath(path, dbConn);
+		dirId = qfs_getDirectoryIdFromPath(path, dbConn, logfile);
 		if (dirId < 0)
+		{
+			if (logfile != NULL)
+				fprintf(logfile, "queryFS_readdir: could not find id for path %s\n", path);
 			return -ENOENT;
+		}
 	}
 
 
