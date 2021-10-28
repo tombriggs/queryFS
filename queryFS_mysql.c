@@ -407,7 +407,7 @@ void qfs_getQueryResults(int queryId, int fileType, char *outfileName, MYSQL *db
 
 	for(int i = 0; i < num_fields; i++)
 	{
-		while((field = mysql_fetch_field(result)))
+		if((field = mysql_fetch_field(result)))
 		{
 			if (field->type == MYSQL_TYPE_VARCHAR || field->type == MYSQL_TYPE_VAR_STRING || field->type == MYSQL_TYPE_DATE || field->type == MYSQL_TYPE_DATETIME)
 				needsQuotes[i] = (char)1;
@@ -417,16 +417,14 @@ void qfs_getQueryResults(int queryId, int fileType, char *outfileName, MYSQL *db
 			else
         		fprintf(outfile, "\"%s\"%s", field->name, (i < num_fields - 1 ? "," : ""));
 		}
-
-		fprintf(outfile, "\n");
     }
+		
+	fprintf(outfile, "\n");
 	
 	while ((row = mysql_fetch_row(result)))
 	{
 		for(int i = 0; i < num_fields; i++)
 		{
-			field = mysql_fetch_field(result);
-			
 			if (fileType == EXT_TYPE_TSV)
 			{
 		        fprintf(outfile, "%s%s", (row[i] ? row[i] : ""), (i < num_fields - 1 ? "\t" : ""));
