@@ -19,6 +19,8 @@ test:
 	ls -al mnt/a
 	ls -al mnt/b
 	ls -al mnt/a/aa
+	cat mnt/queryFS_tables.csv
+	cat mnt/queryFS_tables.tsv
 	sleep 1
 	fusermount -u mnt
 

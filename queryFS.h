@@ -1,6 +1,9 @@
 #ifndef QUERYFS_H
 #define QUERYFS_H
 
+#define EXT_TYPE_CSV 0
+#define EXT_TYPE_TSV 1
+
 typedef struct qfsItem_struct
 {
 	int id;

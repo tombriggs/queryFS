@@ -15,4 +15,5 @@ qfsQuery** qfs_getDirectoryFileContents(int dirId, MYSQL *dbConn);
 int qfs_getDirectoryIdFromPath(const char *path, MYSQL *dbConn, FILE *logfile);
 qfsQuery * qfs_getObjectFromPath(const char *path, MYSQL *dbConn, FILE *logfile);
 qfsDir* qfs_getDirectory(int *dirId, char *name, int *parentDirId, MYSQL *dbConn);
+void qfs_getQueryResults(int queryId, int fileType, char *outfile, MYSQL *dbConn, FILE *logfile);
 

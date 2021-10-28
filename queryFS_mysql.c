@@ -53,19 +53,6 @@ qfsQuery* qfs_getQuery(int *queryId, const char *name, MYSQL *dbConn)
 	return q;
 }
 
-int queryExists(const char *name, MYSQL *dbConn)
-{
-	int retVal = 0;
-	qfsQuery* query = qfs_getQuery(NULL, name, dbConn);
-	if (query != NULL)
-	{
-		retVal = 1;
-		free(query);
-	}
-
-	return retVal;
-}
-
 qfsQuery** qfs_getDirectoryDirContents(int dirId, MYSQL *dbConn)
 {
 	unsigned int numContents = 0;
@@ -378,4 +365,118 @@ qfsDir* qfs_getDirectory(int *dirId, char *name, int *parentDirId, MYSQL *dbConn
 
 	return q;
 }
+
+void qfs_getQueryResults(int queryId, int fileType, char *outfileName, MYSQL *dbConn, FILE *logfile)
+{
+	char querySQL[512];
+
+	if (dbConn == NULL)
+	{
+		if (logfile != NULL)
+			fprintf(logfile, "qfs_getQueryResults: no database connection\n");
+
+		return;
+	}
+
+	sprintf(querySQL, "CALL sp_getQueryResult(%d)", queryId);
+
+	if (mysql_query(dbConn, querySQL))
+	{
+		if (logfile != NULL)
+			fprintf(logfile, "Failed to execute query \"%s\"\n", querySQL);
+		return;
+	}
+
+	MYSQL_RES *result = mysql_store_result(dbConn);
+	MYSQL_FIELD *field;
+	MYSQL_ROW row;
+
+	if (result == NULL)
+	{
+		if (logfile != NULL)
+			fprintf(logfile, "Failed to store results for directory \"%s\"\n", querySQL);
+		return;
+	}
+
+	int num_fields = mysql_num_fields(result);
+	char *needsQuotes = (char*)malloc(sizeof(char) * num_fields);
+
+	FILE *outfile = fopen(outfileName, "w");
+
+	memset(needsQuotes, 0, sizeof(char) * num_fields);
+
+	for(int i = 0; i < num_fields; i++)
+	{
+		while((field = mysql_fetch_field(result)))
+		{
+			if (field->type == MYSQL_TYPE_VARCHAR || field->type == MYSQL_TYPE_VAR_STRING || field->type == MYSQL_TYPE_DATE || field->type == MYSQL_TYPE_DATETIME)
+				needsQuotes[i] = (char)1;
+
+			if (fileType == EXT_TYPE_TSV)
+        		fprintf(outfile, "%s%s", field->name, (i < num_fields - 1 ? "\t" : ""));
+			else
+        		fprintf(outfile, "\"%s\"%s", field->name, (i < num_fields - 1 ? "," : ""));
+		}
+
+		fprintf(outfile, "\n");
+    }
+	
+	while ((row = mysql_fetch_row(result)))
+	{
+		for(int i = 0; i < num_fields; i++)
+		{
+			field = mysql_fetch_field(result);
+			
+			if (fileType == EXT_TYPE_TSV)
+			{
+		        fprintf(outfile, "%s%s", (row[i] ? row[i] : ""), (i < num_fields - 1 ? "\t" : ""));
+			}
+			else
+			{
+				if (needsQuotes[i] == 1)
+		        	fprintf(outfile, "%s%s%s%s", 
+						(needsQuotes[i] == 1 ? "\"" : ""), 
+						(row[i] ? row[i] : ""), 
+						(needsQuotes[i] == 1 ? "\"" : ""), 
+						(i < num_fields - 1 ? "," : "")
+					);
+				else
+		        	fprintf(outfile, "%s%s", (row[i] ? row[i] : ""), (i < num_fields - 1 ? "," : ""));
+			}
+	    }
+
+       fprintf(outfile, "\n");
+	}
+
+	free(needsQuotes);
+
+	mysql_free_result(result);
+
+	fclose(outfile);
+
+	// more results? -1 = no, >0 = error, 0 = yes (keep looping)
+	int moreResults = mysql_next_result(dbConn);
+	if (moreResults > -1)
+	{
+		MYSQL_RES *result2 = mysql_store_result(dbConn);
+		if (result2 != NULL)
+		{
+			if (logfile != NULL)
+			{
+				fprintf(logfile, "Unexpected extra results for query \"%s\"? (%d)\n", querySQL, moreResults);
+				fflush(logfile);
+			}
+			mysql_free_result(result2);
+		}
+		else if (mysql_field_count(dbConn) != 0)
+		{
+			if (logfile != NULL)
+			{
+				fprintf(logfile, "Unexpected extra results for query \"%s\"? (%d) fields\n", querySQL, mysql_field_count(dbConn));
+				fflush(logfile);
+			}
+		}
+	}
+}
+
 

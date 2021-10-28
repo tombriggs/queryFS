@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <unistd.h>
 
 #include "queryFS.h"
 #include "queryFS_mysql.h"
@@ -62,6 +63,8 @@ static void queryFS_destroy(void *private_data)
 	}
 }
 
+#define QUERYFS_FILE_SIZE 1024
+
 static int queryFS_getattr(const char *path, struct stat *stbuf,
 			 struct fuse_file_info *fi)
 {
@@ -92,7 +95,7 @@ static int queryFS_getattr(const char *path, struct stat *stbuf,
 			fprintf(logfile, "queryFS_getattr: ignoring dot file %s\n", path);
 		res = -ENOENT;
 	}
-	else // if (queryExists(path+1, dbConn)) 
+	else
 	{
 		// qfsQuery* query = qfs_getQuery(NULL, path + 1, dbConn);
 		qfsQuery* query = qfs_getObjectFromPath(path, dbConn, logfile);
@@ -115,7 +118,7 @@ static int queryFS_getattr(const char *path, struct stat *stbuf,
 			{
 				stbuf->st_mode = S_IFREG | 0444;
 				stbuf->st_nlink = 1;
-				stbuf->st_size = 7; // ??? TODO
+				stbuf->st_size = QUERYFS_FILE_SIZE;
 			}
 			stbuf->st_mtime = ((qfsItem*)query)->lastUpdateTimestamp;
 
@@ -133,12 +136,14 @@ static int queryFS_getattr(const char *path, struct stat *stbuf,
 	return res;
 }
 
-#define EXT_TXT ".txt"
 #define EXT_CSV ".csv"
 #define EXT_TSV ".tsv"
 #define MAX_FILENAME_LEN 256
 
 #define QUERYFS_LOGFILE "/tmp/queryFS.log"
+
+const char *extensions[] = {EXT_CSV, EXT_TSV};
+int numExtensions = sizeof(extensions) / sizeof(extensions[0]);
 
 static int queryFS_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 			 off_t offset, struct fuse_file_info *fi,
@@ -147,9 +152,6 @@ static int queryFS_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 	(void) offset;
 	(void) fi;
 	(void) flags;
-
-	const char *extensions[] = {EXT_TXT, EXT_CSV, EXT_TSV};
-	int numExtensions = sizeof(extensions) / sizeof(extensions[0]);
 
 	int dirId = 0;
 
@@ -244,13 +246,108 @@ static int queryFS_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 	return 0;
 }
 
+#define OUTFILE_PATH "/tmp/"
+
+int queryFS_open(const char *path, struct fuse_file_info *fi)
+{
+    int retstat = 0;
+    int fd;
+
+	MYSQL *dbConn = ((queryFS_pdata*)(fuse_get_context()->private_data))->dbConn;
+	FILE *logfile = ((queryFS_pdata*)(fuse_get_context()->private_data))->logfile;
+
+	if (logfile != NULL)
+		fprintf(logfile, "queryFS_open: %s\n", path);
+
+	if ((fi->flags & O_ACCMODE) != O_RDONLY)
+        return -EACCES;
+
+	qfsQuery* query = qfs_getObjectFromPath(path, dbConn, logfile);
+	if (query != NULL)
+	{
+		if (logfile != NULL)
+			fprintf(logfile, "queryFS_open: found query %s; id: %d type: %d timestamp %ld\n", 
+				path,
+				((qfsItem*)query)->id,
+				query->type,
+				((qfsItem*)query)->lastUpdateTimestamp);
+
+		if (query->type == 0)
+		{
+			// Can't read directories
+			retstat = -ENOENT;
+		}
+		else
+		{
+			char outFile[MAX_FILENAME_LEN];
+			time_t now = time(NULL);
+
+			// Figure out the file type from the extension
+			int fileType = EXT_TYPE_CSV;
+			if (0 == strcmp(path + strlen(path) - strlen(EXT_TSV), EXT_TSV))
+				fileType = EXT_TYPE_TSV;
+
+			sprintf(outFile, "%squeryFS_output_%d_%ld.txt", OUTFILE_PATH, ((qfsItem*)query)->id, now);
+			if (logfile != NULL)
+				fprintf(logfile, "queryFS_open: writing results (type %d) to file %s\n", fileType, outFile);
+
+			qfs_getQueryResults(((qfsItem*)query)->id, fileType, outFile, dbConn, logfile);
+    		fd = open(outFile, fi->flags);
+			if (fd < 0)
+			{
+				if (logfile != NULL)
+					fprintf(logfile, "queryFS_open: open failed\n");
+			}
+			else
+			{
+				if (logfile != NULL)
+					fprintf(logfile, "queryFS_open: outfile #%d\n", fd);
+			}
+    	
+			fi->fh = fd;
+		}
+	}
+	else
+		retstat = -ENOENT;
+		
+	return retstat;
+}
+
+int queryFS_read(const char *path, char *buf, size_t size, off_t offset, struct fuse_file_info *fi)
+{
+	FILE *logfile = ((queryFS_pdata*)(fuse_get_context()->private_data))->logfile;
+
+	if (logfile != NULL)
+		fprintf(logfile, "queryFS_read: %s %ld %ld %ld\n", path, size, offset, fi->fh);
+
+    int r = pread(fi->fh, buf, size, offset);
+
+	if (logfile != NULL)
+	{
+		fprintf(logfile, "queryFS_read: read %d bytes\n", r);
+		fprintf(logfile, "queryFS_read: %s\n", buf);
+	}
+
+	return r;
+}
+
+int queryFS_release(const char *path, struct fuse_file_info *fi)
+{
+	FILE *logfile = ((queryFS_pdata*)(fuse_get_context()->private_data))->logfile;
+
+	if (logfile != NULL)
+		fprintf(logfile, "queryFS_release: %s\n", path);
+
+    return close(fi->fh);
+}
 
 static const struct fuse_operations queryFS_oper = {
 //	.init           = queryFS_init,
 	.getattr	= queryFS_getattr,
 	.readdir	= queryFS_readdir,
-//	.open		= queryFS_open,
-//	.read		= queryFS_read,
+	.open		= queryFS_open,
+	.read		= queryFS_read,
+	.release	= queryFS_release,
 	.destroy	= queryFS_destroy,
 };
 
