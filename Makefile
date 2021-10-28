@@ -12,15 +12,17 @@ $(TARGET): $(OBJFILES)
 clean:
 	rm -f $(OBJFILES) $(TARGET) 
 
-test:
+mount: $(TARGET)
 	rm /tmp/queryFS.log 
 	./queryFS --host=127.0.0.1 --user=root "--password=Temp123!" -s mnt
+
+test: mount
 	ls -al mnt
 	ls -al mnt/a
 	ls -al mnt/b
 	ls -al mnt/a/aa
 	cat mnt/queryFS_tables.csv
-	cat mnt/queryFS_tables.tsv
+	cat mnt/a/aa/queryFS_schemas.tsv
 	sleep 1
 	fusermount -u mnt
 
