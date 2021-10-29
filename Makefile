@@ -14,6 +14,7 @@ clean:
 
 mount: $(TARGET)
 	rm /tmp/queryFS.log 
+	mkdir -p mnt
 	./queryFS --host=127.0.0.1 --user=root "--password=Temp123!" -s mnt
 
 test: mount
