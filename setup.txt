@@ -1,5 +1,0 @@
-create a MySQL instance in a Docker container (if MySQL isn't available already...)
-install libfuse as described at https://github.com/libfuse/libfuse OR on Ubuntu:
-	sudo apt install fuse3 libfuse3-3 libfuse3-dev
-
-
